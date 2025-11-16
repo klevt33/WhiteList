@@ -45,6 +45,8 @@
     <Compile Include="ProjectInstaller.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ServiceConfiguration.cs" />
+    <Compile Include="ServiceStateIpcClient.cs" />
+    <Compile Include="ServiceStateIpcServer.cs" />
     <Compile Include="WhiteListService.cs" />
   </ItemGroup>
   <ItemGroup>

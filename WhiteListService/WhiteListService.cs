@@ -14,6 +14,7 @@ namespace WhiteListService
         private CancellationTokenSource? _cancellationTokenSource;
         private Task? _workerTask;
         private ManualResetEventSlim? _pauseEvent;
+        private ServiceStateIpcServer? _ipcServer;
         private string? _pendingDiagnosticMessage;
 
         public WhiteListService()
@@ -45,6 +46,10 @@ namespace WhiteListService
                 _cancellationTokenSource = new CancellationTokenSource();
                 _workerTask = Task.Run(() => RunAsync(_cancellationTokenSource.Token));
 
+                _ipcServer = new ServiceStateIpcServer(_configuration.ServiceName);
+                _ipcServer.Start();
+                LogInformation("IPC server started for service state queries.");
+
                 LogInformation("Service started successfully.");
             }
             catch (Exception ex)
@@ -59,6 +64,12 @@ namespace WhiteListService
             try
             {
                 LogInformation("Stop requested.");
+
+                if (_ipcServer != null)
+                {
+                    _ipcServer.Stop();
+                    LogInformation("IPC server stopped.");
+                }
 
                 RequestCancellation();
                 WaitForWorkerCompletion("stop");
@@ -255,6 +266,12 @@ namespace WhiteListService
                 {
                     _pauseEvent.Dispose();
                     _pauseEvent = null;
+                }
+
+                if (_ipcServer != null)
+                {
+                    _ipcServer.Dispose();
+                    _ipcServer = null;
                 }
             }
         }

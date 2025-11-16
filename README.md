@@ -11,6 +11,7 @@ The WhiteList Service is a robust, production-ready Windows Service built with .
 - **Windows Service Architecture**: Built using System.ServiceProcess.ServiceBase for native Windows integration
 - **Full Lifecycle Management**: Implements OnStart, OnStop, OnPause, OnContinue, and OnShutdown handlers
 - **Event Log Integration**: All service events logged to Windows Event Viewer
+- **IPC State Query Interface**: Named pipe interface for admin tools to query service state (Running, Paused, Stopped)
 - **Configurable Settings**: JSON-based configuration file for service parameters
 - **Automatic Recovery**: Configured to automatically restart on failure
 - **Graceful Shutdown**: Waits for background tasks to complete with configurable timeout
@@ -26,6 +27,8 @@ WhiteListService/
 ├── WhiteListService.cs            # Main service implementation (ServiceBase)
 ├── ProjectInstaller.cs            # Service installer (for InstallUtil)
 ├── ServiceConfiguration.cs        # Configuration loader and validator
+├── ServiceStateIpcServer.cs       # IPC server for state queries
+├── ServiceStateIpcClient.cs       # IPC client helper for admin tools
 ├── App.config                     # Application configuration
 ├── serviceconfig.json             # Service settings (JSON)
 ├── InstallService.bat             # Installation script
@@ -230,6 +233,105 @@ Get-EventLog -LogName Application -Source WhiteListAccessService -EntryType Erro
 wevtutil qe Application "/q:*[System[Provider[@Name='WhiteListAccessService']]]" /c:50 /f:text
 ```
 
+## Querying Service State (IPC Interface)
+
+The service provides an IPC (Inter-Process Communication) interface via Named Pipes that allows admin tools to query the service state programmatically. This interface is accessible only to administrators and the SYSTEM account.
+
+### Using the IPC Client (C# Code)
+
+```csharp
+using WhiteListService;
+
+// Create IPC client
+var client = new ServiceStateIpcClient();
+
+// Query service status
+string status = client.GetServiceStatus();
+Console.WriteLine(status);
+// Output example: "OK:Running|CanPause=True|CanStop=True|CanShutdown=True"
+
+// Ping test (check if service is responding)
+bool isResponding = client.Ping();
+Console.WriteLine($"Service responding: {isResponding}");
+
+// Async versions
+string statusAsync = await client.GetServiceStatusAsync();
+bool isRespondingAsync = await client.PingAsync();
+```
+
+### IPC Protocol
+
+The IPC interface uses Named Pipe: `\\.\pipe\WhiteListServiceStateQuery`
+
+**Supported Commands:**
+- `STATUS` - Returns service status and capabilities
+- `PING` - Returns `PONG` if service is responding
+
+**Response Format:**
+- Success: `OK:<ServiceStatus>|CanPause=<bool>|CanStop=<bool>|CanShutdown=<bool>`
+- Error: `ERROR:<message>`
+
+**Example Responses:**
+- `OK:Running|CanPause=True|CanStop=True|CanShutdown=True`
+- `OK:Paused|CanPause=True|CanStop=True|CanShutdown=True`
+- `ERROR:Service not found`
+
+**Service Status Values:**
+- `Stopped` - Service is stopped
+- `StartPending` - Service is starting
+- `StopPending` - Service is stopping
+- `Running` - Service is running
+- `ContinuePending` - Service is resuming from pause
+- `PausePending` - Service is pausing
+- `Paused` - Service is paused (web access restriction disabled)
+
+**Security:**
+- Pipe is accessible only to Administrators and SYSTEM account
+- Connection timeout: 5 seconds (configurable via client constructor)
+
+### Integration Example
+
+Admin tools can integrate the IPC client to monitor or control the service:
+
+```csharp
+public class ServiceMonitor
+{
+    private readonly ServiceStateIpcClient _client = new ServiceStateIpcClient();
+    
+    public bool IsServiceEnabled()
+    {
+        try
+        {
+            var status = _client.GetServiceStatus();
+            if (status.StartsWith("OK:"))
+            {
+                var parts = status.Substring(3).Split('|');
+                var state = parts[0];
+                return state == "Running";
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    
+    public bool IsServicePaused()
+    {
+        try
+        {
+            var status = _client.GetServiceStatus();
+            return status.Contains("Paused");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}
+```
+
 ## Service Behavior
 
 ### Startup
@@ -237,24 +339,29 @@ wevtutil qe Application "/q:*[System[Provider[@Name='WhiteListAccessService']]]"
 - Loads configuration from `serviceconfig.json`
 - Creates/verifies Event Log source
 - Initializes background worker thread
+- Starts IPC server for state queries
 - Logs startup event
 
 ### Running
 - Executes background work at configured intervals
-- Respects pause/continue commands
+- Respects pause/continue commands (immediate effect, no restart required)
+- IPC server responds to state queries from admin tools
 - Handles exceptions gracefully
 - Logs important events and errors
 
 ### Shutdown
+- Stops IPC server
 - Cancels background operations
 - Waits for tasks to complete (up to configured timeout)
 - Cleans up resources
 - Logs shutdown event
 
 ### Pause/Resume
-- When paused, background work is suspended
-- When resumed, background work continues
+- When paused, background work is suspended (web access restriction disabled)
+- When resumed, background work continues (web access restriction re-enabled)
 - Service remains running during pause
+- State changes take effect immediately (no restart required)
+- IPC interface remains available during pause to report status
 
 ### Failure Recovery
 - Automatically restarts after failure
@@ -381,6 +488,7 @@ Or debug during startup:
 - Consider using a dedicated service account for production
 - Event Log writes require appropriate permissions
 - Configuration file should be protected (NTFS permissions)
+- IPC interface via Named Pipes (local only, restricted to Administrators/SYSTEM)
 - No network ports are opened by default
 
 ## Performance
@@ -408,6 +516,8 @@ Or debug during startup:
 - Installer scripts
 - Automatic failure recovery
 - Graceful shutdown with timeout
+- IPC interface for service state queries
+- Pause/Resume for immediate enable/disable (no restart required)
 
 ## Contributing
 
