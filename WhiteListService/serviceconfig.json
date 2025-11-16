@@ -1,0 +1,15 @@
+{
+  "serviceName": "WhiteListAccessService",
+  "displayName": "WhiteList Web Access Restriction Service",
+  "description": "Enforces whitelist policies for web access restrictions on the local system.",
+  "eventLogName": "Application",
+  "eventLogSource": "WhiteListAccessService",
+  "shutdownTimeoutSeconds": 30,
+  "backgroundWorkIntervalSeconds": 60,
+  "failureRestartDelaySeconds": 60,
+  "failureResetPeriodHours": 24,
+  "delayedAutoStart": false,
+  "dependencies": [
+    "Tcpip"
+  ]
+}
